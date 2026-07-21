@@ -1,4 +1,4 @@
-import { db } from './db';
+import { cacheGet, cachePut, cacheGetAll } from './cache-client';
 
 export interface DebugAsset {
   type: string;
@@ -9,24 +9,26 @@ export interface DebugAsset {
 }
 
 /**
- * 更新 html 缓存
- * @param html 缓存
+ * 更新 debug 缓存
  */
 export async function updateDebugCache(html: DebugAsset): Promise<boolean> {
-  return db.transaction('rw', 'debug', async () => {
-    await db.debug.put(html);
+  try {
+    await cachePut('debug', html.url, html);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
- * 获取 asset 缓存
- * @param url
+ * 获取 debug 缓存
  */
 export async function getDebugCache(url: string): Promise<DebugAsset | undefined> {
-  return db.debug.get(url);
+  const result = await cacheGet<DebugAsset>('debug', url);
+  return result ?? undefined;
 }
 
 export async function getDebugInfo(): Promise<DebugAsset[]> {
-  return db.debug.toArray();
+  const all = await cacheGetAll<DebugAsset>('debug');
+  return all.map(item => item.value);
 }

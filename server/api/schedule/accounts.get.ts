@@ -1,9 +1,7 @@
-import { getScheduleAccounts } from '~/server/kv/schedule';
-
 /**
- * 获取所有订阅的公众号
+ * （已废弃）账号数据统一通过 /api/accounts 管理
+ * 此处仅保留兼容，返回空列表
  */
 export default defineEventHandler(async () => {
-  const accounts = await getScheduleAccounts();
-  return { code: 0, data: accounts };
+  return { code: 0, data: [] };
 });

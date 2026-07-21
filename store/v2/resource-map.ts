@@ -1,4 +1,4 @@
-import { db } from './db';
+import { cacheGet, cachePut } from './cache-client';
 
 export interface ResourceMapAsset {
   fakeid: string;
@@ -8,19 +8,20 @@ export interface ResourceMapAsset {
 
 /**
  * 更新 resource-map 缓存
- * @param resourceMap 缓存
  */
 export async function updateResourceMapCache(resourceMap: ResourceMapAsset): Promise<boolean> {
-  return db.transaction('rw', 'resource-map', async () => {
-    await db['resource-map'].put(resourceMap);
+  try {
+    await cachePut('resource-map', resourceMap.url, resourceMap);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 获取 resource-map 缓存
- * @param url
  */
 export async function getResourceMapCache(url: string): Promise<ResourceMapAsset | undefined> {
-  return db['resource-map'].get(url);
+  const result = await cacheGet<ResourceMapAsset>('resource-map', url);
+  return result ?? undefined;
 }

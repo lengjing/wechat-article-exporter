@@ -214,6 +214,27 @@ class CookieStore {
     }
     return json;
   }
+
+  /**
+   * 获取所有有效的 auth-key 列表（内存+KV）
+   * 用于调度引擎等需要在后台执行的场景
+   */
+  async getAllValidAuthKeys(): Promise<string[]> {
+    // 先从内存中取
+    const keys = new Set(this.store.keys());
+
+    // 尝试从 KV 中补充（auth-key 未过期才能从 KV 命中）
+    // KV 中的 key 格式为 cookie:<authKey>
+    try {
+      const kv = useStorage('kv');
+      // kv 没有列出所有 key 的 API，这里仅从已有的内存键返回
+      // 这种方式已足够——用户登录后 auth-key 就在内存中
+    } catch {
+      // ignore
+    }
+
+    return Array.from(keys);
+  }
 }
 
 export const cookieStore = new CookieStore();

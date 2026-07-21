@@ -78,13 +78,24 @@
             <p class="font-medium">启用定时调度</p>
             <p class="text-sm text-slate-10">启用后将按间隔时间自动检查已订阅公众号的最新文章</p>
           </div>
-          <UButton
-            :color="status.enabled ? 'red' : 'green'"
-            :loading="toggling"
-            @click="toggleSchedule"
-          >
-            {{ status.enabled ? '停止调度' : '启动调度' }}
-          </UButton>
+          <div class="flex items-center gap-2">
+            <UButton
+              color="black"
+              variant="outline"
+              :loading="runningNow"
+              :disabled="!status.enabled"
+              @click="runNow"
+            >
+              立即执行
+            </UButton>
+            <UButton
+              :color="status.enabled ? 'red' : 'green'"
+              :loading="toggling"
+              @click="toggleSchedule"
+            >
+              {{ status.enabled ? '停止调度' : '启动调度' }}
+            </UButton>
+          </div>
         </div>
 
         <!-- 状态信息 -->
@@ -109,14 +120,12 @@
       </div>
     </UCard>
 
-    <!-- 订阅公众号列表 -->
+    <!-- 公众号列表（数据源：公众号管理） -->
     <UCard>
       <template #header>
         <div class="flex items-center justify-between">
-          <h3 class="text-xl font-semibold">订阅的公众号</h3>
-          <UButton @click="refreshAccounts" color="black" variant="outline" size="sm">
-            刷新列表
-          </UButton>
+          <h3 class="text-xl font-semibold">定时监控的公众号</h3>
+          <span class="text-sm text-slate-10">共 {{ accounts.length }} 个</span>
         </div>
       </template>
 
@@ -126,42 +135,90 @@
         <UButton @click="showLogin" color="primary">去登录</UButton>
       </div>
 
-      <!-- 公众号列表 -->
-      <div v-else-if="allAccounts.length === 0" class="text-center py-8 text-slate-10">
-        <p>暂无已添加的公众号</p>
-        <p class="text-sm mt-1">请先在「公众号管理」页面添加公众号</p>
+      <!-- 搜索添加 -->
+      <div v-else class="mb-6">
+        <label class="block text-sm font-medium mb-2">搜索添加公众号</label>
+        <div class="flex gap-2">
+          <UInput
+            v-model="searchKeyword"
+            placeholder="输入公众号名称搜索"
+            class="flex-1 font-mono"
+            size="lg"
+            @keyup.enter="searchAccounts"
+          />
+          <UButton @click="searchAccounts" color="black" :loading="searching">
+            搜索
+          </UButton>
+        </div>
+
+        <!-- 搜索结果 -->
+        <div v-if="searchResults.length > 0" class="mt-3 space-y-2">
+          <div
+            v-for="result in searchResults"
+            :key="result.fakeid"
+            class="flex items-center gap-3 p-3 rounded-lg border border-slate-6 dark:border-slate-600"
+          >
+            <img
+              v-if="result.round_head_img"
+              :src="result.round_head_img"
+              class="size-8 rounded-full flex-shrink-0"
+              alt=""
+            />
+            <div class="flex-1 min-w-0">
+              <p class="font-medium truncate">{{ result.nickname }}</p>
+              <p class="text-xs text-slate-10 truncate">{{ result.service_type || result.verify_info || '' }}</p>
+            </div>
+            <UBadge
+              v-if="isInAccounts(result.fakeid)"
+              color="green"
+              variant="subtle"
+              size="sm"
+            >已添加</UBadge>
+            <UButton
+              v-else
+              @click="addAccount(result)"
+              color="black"
+              variant="outline"
+              size="sm"
+            >添加并启用监控</UButton>
+          </div>
+        </div>
+        <p v-else-if="searchKeyword && !searching" class="text-sm text-slate-10 mt-2">未找到相关公众号</p>
+      </div>
+
+      <!-- 已添加的公众号 -->
+      <div v-if="accounts.length === 0" class="text-center py-8 text-slate-10">
+        <p>暂无公众号</p>
+        <p class="text-sm mt-1">在上方搜索并添加需要监控的公众号</p>
       </div>
 
       <div v-else>
         <div class="grid gap-3">
           <div
-            v-for="account in allAccounts"
+            v-for="account in accounts"
             :key="account.fakeid"
             class="flex items-center gap-3 p-3 rounded-lg border border-slate-6 dark:border-slate-600 hover:bg-slate-2 dark:hover:bg-slate-800 transition-colors"
           >
             <UCheckbox
-              v-model="subscribedMap[account.fakeid]"
+              :model-value="!!account.scheduleEnabled"
               :label="account.nickname || account.fakeid"
+              @update:model-value="toggleMonitor(account)"
             />
-            <div class="flex-1">
-              <p class="font-medium">{{ account.nickname || '未知公众号' }}</p>
-              <p v-if="account.lastArticleTitle" class="text-xs text-slate-10 truncate">
-                最新：{{ account.lastArticleTitle }}
-              </p>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium truncate">{{ account.nickname || '未知' }}</p>
+              <p class="text-xs text-slate-10">文章 {{ account.articles }} 篇</p>
             </div>
-            <span class="text-xs text-slate-9">
-              {{ account.completed ? '已同步' : '同步中' }}
-            </span>
+            <UBadge :color="account.scheduleEnabled ? 'green' : 'gray'" variant="subtle" size="sm">
+              {{ account.scheduleEnabled ? '监控中' : '已暂停' }}
+            </UBadge>
           </div>
         </div>
 
         <div class="mt-4 flex items-center gap-3">
-          <UButton @click="selectAll" color="black" variant="outline" size="sm">全选</UButton>
-          <UButton @click="deselectAll" color="black" variant="outline" size="sm">取消全选</UButton>
+          <UButton @click="enableAll" color="black" variant="outline" size="sm">全部启用监控</UButton>
+          <UButton @click="disableAll" color="black" variant="outline" size="sm">全部暂停监控</UButton>
           <div class="flex-1"></div>
-          <UButton @click="saveAccounts" color="black" :loading="savingAccounts">
-            保存订阅
-          </UButton>
+          <span class="text-sm text-slate-10">{{ monitoringCount }}/{{ accounts.length }} 监控中</span>
         </div>
       </div>
     </UCard>
@@ -172,8 +229,8 @@
 
 <script setup lang="ts">
 import { websiteName } from '~/config';
-import { getAllInfo, type MpAccount } from '~/store/v2/info';
-import type { ScheduleAccount } from '~/types/schedule';
+import type { AccountInfo } from '~/types/types';
+import type { MpAccount } from '~/store/v2/info';
 
 useHead({
   title: `定时订阅 | ${websiteName}`,
@@ -186,7 +243,8 @@ const toast = useToast();
 
 const isLoggedIn = computed(() => !!loginAccount.value);
 
-// 状态
+// ======= 调度状态 =======
+
 const status = ref({
   enabled: false,
   dingtalkUrl: '',
@@ -196,26 +254,30 @@ const status = ref({
   nextCheckTime: null as number | null,
   isRunning: false,
   error: '',
-  accountCount: 0,
-  totalAccounts: 0,
 });
 
-// 表单
 const dingtalkUrl = ref('');
 const dingtalkSecret = ref('');
 const intervalHours = ref(2);
 const savingDingtalk = ref(false);
 const toggling = ref(false);
-const savingAccounts = ref(false);
+const runningNow = ref(false);
 
-// 所有本地账号
-const allAccounts = ref<MpAccount[]>([]);
-// 订阅映射：fakeid -> 是否订阅
-const subscribedMap = ref<Record<string, boolean>>({});
-// 已订阅账号的详细信息
-const scheduledAccounts = ref<ScheduleAccount[]>([]);
+// ======= 公众号数据（数据源：公众号管理 .data/accounts.json）=======
 
-// 加载状态
+/** 所有公众号列表 */
+const accounts = ref<MpAccount[]>([]);
+
+/** 启用监控的数量 */
+const monitoringCount = computed(() => accounts.value.filter(a => a.scheduleEnabled).length);
+
+/** 搜索关键词与结果 */
+const searchKeyword = ref('');
+const searching = ref(false);
+const searchResults = ref<AccountInfo[]>([]);
+
+// ======= 加载 =======
+
 async function loadStatus() {
   try {
     const resp = await $fetch('/api/schedule/status');
@@ -230,92 +292,105 @@ async function loadStatus() {
   }
 }
 
+/** 从公众号管理加载所有账号 */
 async function loadAccounts() {
   try {
-    // 从 IndexedDB 获取所有本地账号
-    allAccounts.value = await getAllInfo();
-  } catch (e) {
-    console.error('加载本地账号失败:', e);
-  }
-
-  try {
-    // 从服务器获取已订阅账号
-    const resp = await $fetch('/api/schedule/accounts');
-    if (resp.code === 0) {
-      scheduledAccounts.value = resp.data || [];
-      // 构建订阅映射
-      const map: Record<string, boolean> = {};
-      for (const acc of scheduledAccounts.value) {
-        map[acc.fakeid] = acc.enabled;
-      }
-      // 合并已删除但仍然订阅的账号
-      for (const acc of allAccounts.value) {
-        if (map[acc.fakeid] === undefined) {
-          map[acc.fakeid] = false;
-        }
-      }
-      subscribedMap.value = map;
+    const resp = await $fetch('/api/accounts');
+    if (resp.code === 0 && Array.isArray(resp.data)) {
+      accounts.value = resp.data as MpAccount[];
     }
   } catch (e) {
-    console.error('加载订阅账号失败:', e);
+    console.error('加载公众号列表失败:', e);
   }
 }
 
-function refreshAccounts() {
-  loadAccounts();
-}
+// ======= 搜索 =======
 
-function selectAll() {
-  for (const acc of allAccounts.value) {
-    subscribedMap.value[acc.fakeid] = true;
-  }
-}
-
-function deselectAll() {
-  for (const acc of allAccounts.value) {
-    subscribedMap.value[acc.fakeid] = false;
-  }
-}
-
-// 保存订阅账号列表
-async function saveAccounts() {
-  savingAccounts.value = true;
+async function searchAccounts() {
+  const kw = searchKeyword.value.trim();
+  if (!kw) return;
+  searching.value = true;
+  searchResults.value = [];
   try {
-    // 构建账号列表
-    const accounts: ScheduleAccount[] = allAccounts.value
-      .filter(acc => subscribedMap.value[acc.fakeid])
-      .map(acc => {
-        const existing = scheduledAccounts.value.find(s => s.fakeid === acc.fakeid);
-        return {
-          fakeid: acc.fakeid,
-          nickname: acc.nickname || '',
-          round_head_img: acc.round_head_img || '',
-          lastArticleTime: existing?.lastArticleTime || 0,
-          lastArticleTitle: existing?.lastArticleTitle || '',
-          lastArticleUrl: existing?.lastArticleUrl || '',
-          enabled: true,
-        };
-      });
-
-    const resp = await $fetch('/api/schedule/accounts', {
-      method: 'POST',
-      body: { accounts },
-    });
-
-    if (resp.code === 0) {
-      toast.add({ title: '订阅已保存', color: 'green' });
-    } else {
-      toast.add({ title: resp.message || '保存失败', color: 'red' });
+    const resp = await $fetch('/api/web/mp/searchbiz', { query: { keyword: kw, begin: 0, size: 5 } });
+    if (resp.base_resp?.ret === 0 && resp.list) {
+      searchResults.value = resp.list;
     }
   } catch (e) {
-    toast.add({ title: '保存失败', color: 'red' });
-    console.error('保存订阅失败:', e);
+    console.error('搜索公众号失败:', e);
   } finally {
-    savingAccounts.value = false;
+    searching.value = false;
   }
 }
 
-// 保存钉钉 URL
+function isInAccounts(fakeid: string): boolean {
+  return accounts.value.some(a => a.fakeid === fakeid);
+}
+
+/** 搜索添加 → 加入公众号管理并启用监控 */
+async function addAccount(info: AccountInfo) {
+  const now = Math.round(Date.now() / 1000);
+  const newAccount: MpAccount = {
+    fakeid: info.fakeid,
+    nickname: info.nickname,
+    round_head_img: info.round_head_img,
+    completed: false,
+    count: 0,
+    articles: 0,
+    total_count: 0,
+    create_time: now,
+    update_time: now,
+    scheduleEnabled: true,
+  };
+  accounts.value.push(newAccount);
+  searchResults.value = [];
+  searchKeyword.value = '';
+
+  try {
+    await $fetch('/api/accounts', { method: 'POST', body: newAccount });
+    toast.add({ title: `已添加「${info.nickname}」并启用监控`, color: 'green' });
+  } catch (e) {
+    console.error('添加公众号失败:', e);
+  }
+}
+
+// ======= 启用/暂停监控 =======
+
+async function toggleMonitor(account: MpAccount) {
+  account.scheduleEnabled = !account.scheduleEnabled;
+  try {
+    await $fetch('/api/accounts', { method: 'POST', body: account });
+  } catch (e) {
+    // 回滚
+    account.scheduleEnabled = !account.scheduleEnabled;
+    console.error('更新监控状态失败:', e);
+  }
+}
+
+async function enableAll() {
+  for (const acc of accounts.value) {
+    acc.scheduleEnabled = true;
+    try {
+      await $fetch('/api/accounts', { method: 'POST', body: acc });
+    } catch (e) {
+      console.error(`启用监控失败: ${acc.nickname}`, e);
+    }
+  }
+}
+
+async function disableAll() {
+  for (const acc of accounts.value) {
+    acc.scheduleEnabled = false;
+    try {
+      await $fetch('/api/accounts', { method: 'POST', body: acc });
+    } catch (e) {
+      console.error(`暂停监控失败: ${acc.nickname}`, e);
+    }
+  }
+}
+
+// ======= 钉钉配置 =======
+
 async function saveDingtalkUrl() {
   savingDingtalk.value = true;
   try {
@@ -336,7 +411,8 @@ async function saveDingtalkUrl() {
   }
 }
 
-// 启用/禁用调度
+// ======= 调度开关 =======
+
 async function toggleSchedule() {
   toggling.value = true;
   try {
@@ -357,6 +433,26 @@ async function toggleSchedule() {
     console.error('切换调度状态失败:', e);
   } finally {
     toggling.value = false;
+  }
+}
+
+/** 立即执行一次检查 */
+async function runNow() {
+  runningNow.value = true;
+  try {
+    const resp = await $fetch('/api/schedule/run-now', { method: 'POST' });
+    if (resp.code === 0) {
+      toast.add({ title: '已触发立即检查，请稍后查看结果', color: 'green' });
+      // 延迟刷新状态
+      setTimeout(() => loadStatus(), 2000);
+    } else {
+      toast.add({ title: resp.message || '操作失败', color: 'red' });
+    }
+  } catch (e) {
+    toast.add({ title: '操作失败', color: 'red' });
+    console.error('立即执行失败:', e);
+  } finally {
+    runningNow.value = false;
   }
 }
 

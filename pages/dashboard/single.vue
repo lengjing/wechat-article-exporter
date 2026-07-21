@@ -24,7 +24,7 @@ import toastFactory from '~/composables/toast';
 import { websiteName } from '~/config';
 import { sharedGridOptions } from '~/config/shared-grid-options';
 import { articleDeleted, updateArticleFakeid, updateArticleStatus } from '~/store/v2/article';
-import { db } from '~/store/v2/db';
+import { articlePut, cacheDelete } from '~/store/v2/cache-client';
 import { getHtmlCache } from '~/store/v2/html';
 import type { Metadata } from '~/store/v2/metadata';
 import type { Preferences } from '~/types/preferences';
@@ -356,7 +356,7 @@ function buildVirtualArticle(row: SingleArticleRow): AppMsgExWithFakeID {
 }
 
 function upsertArticleStub(row: SingleArticleRow) {
-  return db.article.put(buildVirtualArticle(row), `${row.fakeid}:${row.aid}`);
+  return articlePut('article', `${row.fakeid}:${row.aid}`, buildVirtualArticle(row));
 }
 
 function getSelectedRows(): SingleArticleRow[] {
@@ -524,19 +524,16 @@ async function updateRowFromHtml(row: SingleArticleRow) {
     }
   }
 
-  await db.article.put(
-    {
-      ...buildVirtualArticle(row),
-      digest: row.digest,
-      cover: cover,
-      cover_img: cover,
-      pic_cdn_url_1_1: cover,
-      pic_cdn_url_3_4: cover,
-      pic_cdn_url_16_9: cover,
-      pic_cdn_url_235_1: cover,
-    },
-    `${row.fakeid}:${row.aid}`
-  );
+  await articlePut('article', `${row.fakeid}:${row.aid}`, {
+    ...buildVirtualArticle(row),
+    digest: row.digest,
+    cover: cover,
+    cover_img: cover,
+    pic_cdn_url_1_1: cover,
+    pic_cdn_url_3_4: cover,
+    pic_cdn_url_16_9: cover,
+    pic_cdn_url_235_1: cover,
+  });
 }
 
 function previewRow(row: SingleArticleRow) {
@@ -558,10 +555,8 @@ const {
 
 async function deleteRowData(row: SingleArticleRow) {
   const key = `${row.fakeid}:${row.aid}`;
-  await db.transaction('rw', ['article', 'html'], async () => {
-    await db.article.delete(key);
-    await db.html.delete(row.link);
-  });
+  await cacheDelete('article', key);
+  await cacheDelete('html', row.link);
 }
 
 async function removeRows() {

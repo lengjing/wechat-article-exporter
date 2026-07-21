@@ -1,4 +1,4 @@
-import { db } from './db';
+import { cacheGet, cachePut } from './cache-client';
 
 export interface CommentAsset {
   fakeid: string;
@@ -9,19 +9,20 @@ export interface CommentAsset {
 
 /**
  * 更新 comment 缓存
- * @param comment 缓存
  */
 export async function updateCommentCache(comment: CommentAsset): Promise<boolean> {
-  return db.transaction('rw', 'comment', async () => {
-    await db.comment.put(comment);
+  try {
+    await cachePut('comment', comment.url, comment);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 获取 comment 缓存
- * @param url
  */
 export async function getCommentCache(url: string): Promise<CommentAsset | undefined> {
-  return db.comment.get(url);
+  const result = await cacheGet<CommentAsset>('comment', url);
+  return result ?? undefined;
 }

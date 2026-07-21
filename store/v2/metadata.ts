@@ -1,5 +1,5 @@
 import type { ArticleMetadata } from '~/utils/download/types';
-import { db } from './db';
+import { cacheGet, cachePut } from './cache-client';
 
 export type Metadata = ArticleMetadata & {
   fakeid: string;
@@ -9,19 +9,20 @@ export type Metadata = ArticleMetadata & {
 
 /**
  * 更新 metadata
- * @param metadata
  */
 export async function updateMetadataCache(metadata: Metadata): Promise<boolean> {
-  return db.transaction('rw', 'metadata', async () => {
-    await db.metadata.put(metadata);
+  try {
+    await cachePut('metadata', metadata.url, metadata);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 获取 metadata
- * @param url
  */
 export async function getMetadataCache(url: string): Promise<Metadata | undefined> {
-  return db.metadata.get(url);
+  const result = await cacheGet<Metadata>('metadata', url);
+  return result ?? undefined;
 }

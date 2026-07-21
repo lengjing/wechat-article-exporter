@@ -1,4 +1,4 @@
-import { db } from './db';
+import { cacheGet, cachePut } from './cache-client';
 
 export interface ResourceAsset {
   fakeid: string;
@@ -8,19 +8,20 @@ export interface ResourceAsset {
 
 /**
  * 更新 resource 缓存
- * @param resource 缓存
  */
 export async function updateResourceCache(resource: ResourceAsset): Promise<boolean> {
-  return db.transaction('rw', 'resource', async () => {
-    await db.resource.put(resource);
+  try {
+    await cachePut('resource', resource.url, resource);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 获取 resource 缓存
- * @param url
  */
 export async function getResourceCache(url: string): Promise<ResourceAsset | undefined> {
-  return db.resource.get(url);
+  const result = await cacheGet<ResourceAsset>('resource', url);
+  return result ?? undefined;
 }

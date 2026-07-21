@@ -1,13 +1,14 @@
-import { getScheduleConfig, getScheduleAccounts, getScheduleState } from '~/server/kv/schedule';
+import { getScheduleConfig, getScheduleState } from '~/server/kv/schedule';
+import { getAllAccounts } from '~/server/kv/account';
 
 /**
  * 获取调度状态
  */
 export default defineEventHandler(async () => {
-  const [config, accounts, state] = await Promise.all([
+  const [config, state, accounts] = await Promise.all([
     getScheduleConfig(),
-    getScheduleAccounts(),
     getScheduleState(),
+    getAllAccounts(),
   ]);
 
   return {
@@ -21,7 +22,7 @@ export default defineEventHandler(async () => {
       nextCheckTime: state.nextCheckTime,
       isRunning: state.isRunning,
       error: state.error || config?.lastError || '',
-      accountCount: accounts.filter(a => a.enabled).length,
+      accountCount: accounts.filter(a => a.scheduleEnabled).length,
       totalAccounts: accounts.length,
     },
   };

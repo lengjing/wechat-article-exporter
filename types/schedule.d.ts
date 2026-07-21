@@ -1,22 +1,6 @@
 // 定时调度模块类型定义
 
-export interface ScheduleAccount {
-  fakeid: string
-  nickname: string
-  round_head_img?: string
-  // 已知的最新文章时间戳（Unix 秒）
-  lastArticleTime: number
-  // 已知的最新文章标题
-  lastArticleTitle?: string
-  // 已知的最新文章链接
-  lastArticleUrl?: string
-  // 是否启用
-  enabled: boolean
-}
-
 export interface ScheduleConfig {
-  // 登录用户的 auth-key
-  authKey: string
   // 钉钉机器人 Webhook 地址
   dingtalkUrl: string
   // 钉钉机器人签名密钥（加签可选）

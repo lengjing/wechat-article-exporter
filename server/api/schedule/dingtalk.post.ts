@@ -1,4 +1,3 @@
-import { parseCookies } from 'h3';
 import { getScheduleConfig, setScheduleConfig } from '~/server/kv/schedule';
 
 /**
@@ -11,19 +10,11 @@ export default defineEventHandler(async event => {
   }
 
   const config = (await getScheduleConfig()) || {
-    authKey: '',
     dingtalkUrl: '',
     dingtalkSecret: '',
     enabled: false,
     intervalHours: 2,
   };
-
-  // 从请求中提取 auth-key
-  const cookies = parseCookies(event);
-  const authKey = cookies['auth-key'];
-  if (authKey) {
-    config.authKey = authKey;
-  }
 
   config.dingtalkUrl = body.url.trim();
   // 签名密钥（可选），未传则清空

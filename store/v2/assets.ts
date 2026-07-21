@@ -1,6 +1,6 @@
-import { db } from './db';
+import { cacheGet, cachePut } from './cache-client';
 
-interface Asset {
+export interface Asset {
   url: string;
   file: Blob;
   fakeid: string;
@@ -10,20 +10,20 @@ export type { Asset };
 
 /**
  * 更新 asset 缓存
- * @param asset
  */
 export async function updateAssetCache(asset: Asset): Promise<boolean> {
-  return db.transaction('rw', 'asset', () => {
-    db.asset.put(asset);
+  try {
+    await cachePut('asset', asset.url, asset);
     return true;
-  });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 获取 asset 缓存
- * @param url
  */
 export async function getAssetCache(url: string): Promise<Asset | undefined> {
-  db.transaction('r', 'asset', () => {});
-  return db.asset.get(url);
+  const result = await cacheGet<Asset>('asset', url);
+  return result ?? undefined;
 }

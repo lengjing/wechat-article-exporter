@@ -1,158 +1,142 @@
 import type { AppMsgExWithFakeID, PublishInfo, PublishPage } from '~/types/types';
-import { db } from './db';
 import { type MpAccount, updateInfoCache } from './info';
+import { articlePut, articleGetAll, articleGetByFakeid, articleDeleteFakeid, cacheGetAll } from './cache-client';
 
 export type ArticleAsset = AppMsgExWithFakeID;
 
+const STORE = 'article';
+
+/** 获取某个公众号的所有缓存文章 */
+async function getArticlesByFakeid(fakeid: string): Promise<AppMsgExWithFakeID[]> {
+  const all = await articleGetByFakeid<AppMsgExWithFakeID>(fakeid);
+  return all.map(item => item.value);
+}
+
 /**
  * 更新文章缓存
- * @param account
- * @param publish_page
  */
 export async function updateArticleCache(account: MpAccount, publish_page: PublishPage) {
-  await db.transaction('rw', ['article', 'info'], async () => {
-    const keys = await db.article.toCollection().keys();
+  const fakeid = account.fakeid;
+  const total_count = publish_page.total_count;
+  const publish_list = publish_page.publish_list.filter(item => !!item.publish_info);
 
-    const fakeid = account.fakeid;
-    const total_count = publish_page.total_count;
-    const publish_list = publish_page.publish_list.filter(item => !!item.publish_info);
+  // 读取已存在的 keys（从该公众号的 NDJSON）
+  const existingKeys = new Set<string>();
+  const existing = await articleGetAll<AppMsgExWithFakeID>(fakeid);
+  for (const item of existing) {
+    existingKeys.add(item.key);
+  }
 
-    // 统计本次缓存成功新增的数量
-    let msgCount = 0;
-    let articleCount = 0;
+  let msgCount = 0;
+  let articleCount = 0;
 
-    for (const item of publish_list) {
-      const publish_info: PublishInfo = JSON.parse(item.publish_info);
-      let newEntryCount = 0;
+  for (const item of publish_list) {
+    const publish_info: PublishInfo = JSON.parse(item.publish_info);
+    let newEntryCount = 0;
 
-      for (const article of publish_info.appmsgex) {
-        const key = await db.article.put({ ...article, fakeid, _status: '' }, `${fakeid}:${article.aid}`);
-        if (!keys.includes(key)) {
-          newEntryCount++;
-          articleCount++;
-        }
+    for (const article of publish_info.appmsgex) {
+      const key = `${fakeid}:${article.aid}`;
+      if (!existingKeys.has(key)) {
+        newEntryCount++;
+        articleCount++;
       }
-
-      if (newEntryCount > 0) {
-        // 新增成功
-        msgCount++;
-      }
+      await articlePut(STORE, key, { ...article, fakeid, _status: '' });
     }
 
-    await updateInfoCache({
-      fakeid: fakeid,
-      completed: publish_list.length === 0,
-      count: msgCount,
-      articles: articleCount,
-      nickname: account.nickname,
-      round_head_img: account.round_head_img,
-      total_count: total_count,
-    });
+    if (newEntryCount > 0) {
+      msgCount++;
+    }
+  }
+
+  await updateInfoCache({
+    fakeid,
+    completed: publish_list.length === 0,
+    count: msgCount,
+    articles: articleCount,
+    nickname: account.nickname,
+    round_head_img: account.round_head_img,
+    total_count,
   });
 }
 
 /**
  * 检查是否存在指定时间之前的缓存
- * @param fakeid 公众号id
- * @param create_time 创建时间
  */
 export async function hitCache(fakeid: string, create_time: number): Promise<boolean> {
-  const count = await db.article
-    .where('fakeid')
-    .equals(fakeid)
-    .and(article => article.create_time < create_time)
-    .count();
-  return count > 0;
+  const articles = await getArticlesByFakeid(fakeid);
+  return articles.some(a => a.create_time < create_time);
 }
 
 /**
  * 读取缓存中的指定时间之前的历史文章
- * @param fakeid 公众号id
- * @param create_time 创建时间
  */
 export async function getArticleCache(fakeid: string, create_time: number): Promise<AppMsgExWithFakeID[]> {
-  return db.article
-    .where('fakeid')
-    .equals(fakeid)
-    .and(article => article.create_time < create_time)
-    .reverse()
-    .sortBy('create_time');
+  const articles = await getArticlesByFakeid(fakeid);
+  return articles
+    .filter(a => a.create_time < create_time)
+    .sort((a, b) => b.create_time - a.create_time);
 }
 
 /**
  * 根据 url 获取文章对象
- * @param url
  */
 export async function getArticleByLink(url: string): Promise<AppMsgExWithFakeID> {
-  const article = await db.article.where('link').equals(url).first();
+  const all = await cacheGetAll<AppMsgExWithFakeID>(STORE);
+  const article = all.find(item => item.value.link === url);
   if (!article) {
     throw new Error(`Article(${url}) does not exist`);
   }
-  return article;
+  return article.value;
 }
 
-// 根据 url 获取 SINGLE_ARTICLE_FAKEID 文章对象
+/**
+ * 根据 url 获取 SINGLE_ARTICLE_FAKEID 文章对象
+ */
 export async function getSingleArticleByLink(url: string): Promise<AppMsgExWithFakeID> {
-  const article = await db.article
-    .where('link')
-    .equals(url)
-    .and(article => article.fakeid === 'SINGLE_ARTICLE_FAKEID')
-    .first();
+  const all = await cacheGetAll<AppMsgExWithFakeID>(STORE);
+  const article = all.find(item => item.value.link === url && item.value.fakeid === 'SINGLE_ARTICLE_FAKEID');
   if (!article) {
     throw new Error(`Article(${url}) does not exist`);
   }
-
-  return article;
+  return article.value;
 }
 
 /**
  * 文章被删除
- * @param url
- * @param is_deleted
  */
 export async function articleDeleted(url: string, is_deleted = true): Promise<void> {
-  await db.transaction('rw', 'article', async () => {
-    await db.article
-      .where('link')
-      .equals(url)
-      .modify(article => {
-        article.is_deleted = is_deleted;
-      });
-  });
+  const all = await cacheGetAll<AppMsgExWithFakeID>(STORE);
+  for (const item of all) {
+    if (item.value.link === url) {
+      item.value.is_deleted = is_deleted;
+      await articlePut(STORE, item.key, item.value);
+    }
+  }
 }
 
 /**
  * 更新文章状态
- * @param url
- * @param status
  */
 export async function updateArticleStatus(url: string, status: string): Promise<void> {
-  await db.transaction('rw', 'article', async () => {
-    await db.article
-      .where('link')
-      .equals(url)
-      .modify(article => {
-        article._status = status;
-      });
-  });
+  const all = await cacheGetAll<AppMsgExWithFakeID>(STORE);
+  for (const item of all) {
+    if (item.value.link === url) {
+      item.value._status = status;
+      await articlePut(STORE, item.key, item.value);
+    }
+  }
 }
 
 /**
  * 更新文章的fakeid
- * @param url
- * @param fakeid
  */
-export async function updateArticleFakeid(url: string, fakeid: string): Promise<void> {
-  await db.transaction('rw', 'article', async () => {
-    await db.article
-      .where('link')
-      .equals(url)
-      .and(article => article.fakeid === 'SINGLE_ARTICLE_FAKEID')
-      .modify(article => {
-        article.fakeid = fakeid;
-
-        // 标记改数据是【单篇文章下载】添加的
-        article._single = true;
-      });
-  });
+export async function updateArticleFakeid(url: string, newFakeid: string): Promise<void> {
+  const all = await cacheGetAll<AppMsgExWithFakeID>(STORE);
+  for (const item of all) {
+    if (item.value.link === url && item.value.fakeid === 'SINGLE_ARTICLE_FAKEID') {
+      item.value.fakeid = newFakeid;
+      item.value._single = true;
+      await articlePut(STORE, item.key, item.value);
+    }
+  }
 }

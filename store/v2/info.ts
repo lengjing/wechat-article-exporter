@@ -1,4 +1,4 @@
-import { db } from './db';
+import { request } from '#shared/utils/request';
 
 export interface MpAccount {
   fakeid: string;
@@ -18,52 +18,79 @@ export interface MpAccount {
 
   // 最后更新时间
   last_update_time?: number;
+
+  // 是否启用定时监控
+  scheduleEnabled?: boolean;
+
+  // 定时调度已知的最新文章信息
+  lastArticleTime?: number;
+  lastArticleTitle?: string;
+  lastArticleUrl?: string;
+
+  // 已推送过的文章 appmsgid 列表（用于去重）
+  pushedAppmsgIds?: number[];
+}
+
+async function httpGet<T>(url: string): Promise<T | null> {
+  try {
+    return await request<T>(url);
+  } catch {
+    return null;
+  }
+}
+
+async function httpPost<T>(url: string, body: unknown): Promise<T | null> {
+  try {
+    return await $fetch<T>(url, { method: 'POST', body });
+  } catch {
+    return null;
+  }
 }
 
 /**
- * 更新 account 缓存
+ * 更新 account 缓存（累加 count/articles）
  * @param mpAccount
  */
 export async function updateInfoCache(mpAccount: MpAccount): Promise<boolean> {
-  return db.transaction('rw', 'info', async () => {
-    let infoCache = await db.info.get(mpAccount.fakeid);
-    if (infoCache) {
-      if (mpAccount.completed) {
-        infoCache.completed = mpAccount.completed;
-      }
-      infoCache.count += mpAccount.count;
-      infoCache.articles += mpAccount.articles;
-      infoCache.nickname = mpAccount.nickname;
-      infoCache.round_head_img = mpAccount.round_head_img;
-      infoCache.total_count = mpAccount.total_count;
-      infoCache.update_time = Math.round(Date.now() / 1000);
-    } else {
-      infoCache = {
-        fakeid: mpAccount.fakeid,
-        completed: mpAccount.completed,
-        count: mpAccount.count,
-        articles: mpAccount.articles,
-        nickname: mpAccount.nickname,
-        round_head_img: mpAccount.round_head_img,
-        total_count: mpAccount.total_count,
-        create_time: Math.round(Date.now() / 1000),
-        update_time: Math.round(Date.now() / 1000),
-      };
-    }
-    db.info.put(infoCache);
-    return true;
-  });
+  try {
+    const existing = await getInfoCache(mpAccount.fakeid);
+    const now = Math.round(Date.now() / 1000);
+
+    const merged: MpAccount = existing
+      ? {
+          ...existing,
+          ...mpAccount,
+          count: existing.count + (mpAccount.count || 0),
+          articles: existing.articles + (mpAccount.articles || 0),
+          update_time: now,
+        }
+      : {
+          ...mpAccount,
+          count: mpAccount.count || 0,
+          articles: mpAccount.articles || 0,
+          create_time: now,
+          update_time: now,
+        };
+
+    const resp = await $fetch('/api/accounts', { method: 'POST', body: merged });
+    return resp?.code === 0;
+  } catch (err) {
+    console.error('updateInfoCache 失败:', err);
+    return false;
+  }
 }
 
 export async function updateLastUpdateTime(fakeid: string): Promise<boolean> {
-  return db.transaction('rw', 'info', async () => {
-    let infoCache = await db.info.get(fakeid);
-    if (infoCache) {
-      infoCache.last_update_time = Math.round(Date.now() / 1000);
-      db.info.put(infoCache);
-    }
-    return true;
-  });
+  try {
+    const account = await getInfoCache(fakeid);
+    if (!account) return false;
+    account.last_update_time = Math.round(Date.now() / 1000);
+    const resp = await $fetch('/api/accounts', { method: 'POST', body: account });
+    return resp?.code === 0;
+  } catch (err) {
+    console.error('updateLastUpdateTime 失败:', err);
+    return false;
+  }
 }
 
 /**
@@ -71,11 +98,12 @@ export async function updateLastUpdateTime(fakeid: string): Promise<boolean> {
  * @param fakeid
  */
 export async function getInfoCache(fakeid: string): Promise<MpAccount | undefined> {
-  return db.info.get(fakeid);
+  const accounts = await getAllAccountsFromApi();
+  return accounts.find(a => a.fakeid === fakeid);
 }
 
 export async function getAllInfo(): Promise<MpAccount[]> {
-  return db.info.toArray();
+  return getAllAccountsFromApi();
 }
 
 // 获取公众号的名称
@@ -84,21 +112,41 @@ export async function getAccountNameByFakeid(fakeid: string): Promise<string | n
   if (!account) {
     return null;
   }
-
   return account.nickname || null;
 }
 
 // 批量导入公众号
 export async function importMpAccounts(mpAccounts: MpAccount[]): Promise<void> {
-  for (const mpAccount of mpAccounts) {
-    // 导入时需要把相关数量置空
-    mpAccount.completed = false;
-    mpAccount.count = 0;
-    mpAccount.articles = 0;
-    mpAccount.total_count = 0;
-    mpAccount.create_time = undefined;
-    mpAccount.update_time = undefined;
-    mpAccount.last_update_time = undefined;
-    await updateInfoCache(mpAccount);
+  const now = Math.round(Date.now() / 1000);
+  const accounts = mpAccounts.map(a => ({
+    ...a,
+    completed: false,
+    count: 0,
+    articles: 0,
+    total_count: 0,
+    create_time: a.create_time || now,
+    update_time: now,
+  }));
+
+  try {
+    await $fetch('/api/accounts/batch', {
+      method: 'POST',
+      body: { accounts },
+    });
+  } catch (err) {
+    console.error('importMpAccounts 失败:', err);
   }
+}
+
+// 内部：调用 API 获取所有账号
+async function getAllAccountsFromApi(): Promise<MpAccount[]> {
+  try {
+    const resp = await $fetch('/api/accounts');
+    if (resp.code === 0 && Array.isArray(resp.data)) {
+      return resp.data as MpAccount[];
+    }
+  } catch (err) {
+    console.error('getAllAccountsFromApi 失败:', err);
+  }
+  return [];
 }

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ScheduleAccount, ScheduleConfig, ScheduleState } from '~/types/schedule';
+import type { ScheduleConfig, ScheduleState } from '~/types/schedule';
 
 /**
  * 持久化文件存储目录
@@ -40,16 +40,6 @@ export async function getScheduleConfig(): Promise<ScheduleConfig | null> {
 
 export async function setScheduleConfig(config: ScheduleConfig): Promise<boolean> {
   return writeJson('config', config);
-}
-
-// ========== 订阅账号 ==========
-
-export async function getScheduleAccounts(): Promise<ScheduleAccount[]> {
-  return readJson<ScheduleAccount[]>('accounts', []);
-}
-
-export async function setScheduleAccounts(accounts: ScheduleAccount[]): Promise<boolean> {
-  return writeJson('accounts', accounts);
 }
 
 // ========== 调度状态 ==========
