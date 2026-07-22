@@ -1,15 +1,25 @@
-import { getScheduleConfig, getScheduleState } from '~/server/kv/schedule';
+import { parseCookies } from 'h3';
+import { getScheduleConfig, setScheduleConfig, getScheduleState } from '~/server/kv/schedule';
 import { getAllAccounts } from '~/server/kv/account';
 
 /**
  * 获取调度状态
  */
-export default defineEventHandler(async () => {
+export default defineEventHandler(async event => {
+  // 从浏览器 cookie 中提取 auth-key 引用并保存到 config
+  const cookies = parseCookies(event);
+  const authKey = cookies['auth-key'] || '';
+
   const [config, state, accounts] = await Promise.all([
     getScheduleConfig(),
     getScheduleState(),
     getAllAccounts(),
   ]);
+
+  if (authKey && config && config.authKey !== authKey) {
+    config.authKey = authKey;
+    await setScheduleConfig(config).catch(() => {});
+  }
 
   return {
     code: 0,

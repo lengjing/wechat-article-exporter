@@ -127,31 +127,29 @@ class ScheduleEngine {
 
     const dingtalkUrl = this.config.dingtalkUrl;
 
-    // 直接从 CookieStore 获取有效的登录凭证
-    const authKeys = await cookieStore.getAllValidAuthKeys();
-    if (authKeys.length === 0) {
-      const errorMsg = '未找到登录凭证，请先扫码登录';
-      console.warn(`[Schedule] [${source}] ❌ ${errorMsg}`);
-      this.config.lastError = errorMsg;
-      await setScheduleConfig(this.config);
-      await setScheduleState({ lastCheckTime: Date.now(), nextCheckTime: null, isRunning: false, error: errorMsg });
-      this.scheduleNext();
-      return;
-    }
-
-    // 依次尝试每个 auth-key，找到第一个有效的
+    // 1. 优先用 config 中保存的 auth-key 引用（服务重启后仍有效，指向 KV 中的 session）
     let cookie: string | null = null;
     let token: string | null = null;
-    let usedAuthKey: string | null = null;
+    let usedAuthKey: string | null = this.config.authKey || null;
 
-    for (const key of authKeys) {
-      const c = await cookieStore.getCookie(key);
-      const t = await cookieStore.getToken(key);
-      if (c && t) {
-        cookie = c;
-        token = t;
-        usedAuthKey = key;
-        break;
+    if (usedAuthKey) {
+      cookie = await cookieStore.getCookie(usedAuthKey);
+      token = await cookieStore.getToken(usedAuthKey);
+    }
+
+    // 2. 如果 config 中的 auth-key 失效，尝试遍历内存中的其他 key
+    if (!cookie || !token) {
+      const authKeys = await cookieStore.getAllValidAuthKeys();
+      for (const key of authKeys) {
+        if (key === usedAuthKey) continue;
+        const c = await cookieStore.getCookie(key);
+        const t = await cookieStore.getToken(key);
+        if (c && t) {
+          cookie = c;
+          token = t;
+          usedAuthKey = key;
+          break;
+        }
       }
     }
 
@@ -159,6 +157,7 @@ class ScheduleEngine {
       const errorMsg = '登录已过期，请重新扫码登录';
       console.warn(`[Schedule] [${source}] ❌ ${errorMsg}`);
       this.config.lastError = errorMsg;
+      this.config.authKey = '';
       await setScheduleConfig(this.config);
       await setScheduleState({ lastCheckTime: Date.now(), nextCheckTime: null, isRunning: false, error: errorMsg });
       this.scheduleNext();

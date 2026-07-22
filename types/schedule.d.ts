@@ -1,6 +1,8 @@
 // 定时调度模块类型定义
 
 export interface ScheduleConfig {
+  // 登录 auth-key 引用（指向 CookieStore/KV 中的 session，不是 session 数据本身）
+  authKey: string
   // 钉钉机器人 Webhook 地址
   dingtalkUrl: string
   // 钉钉机器人签名密钥（加签可选）
